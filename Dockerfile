@@ -33,4 +33,6 @@ FROM docker.io/svenstaro/miniserve:0.35.0-alpine AS runtime
 COPY --from=build /app/dist /app
 
 EXPOSE 8080
-CMD ["--spa", "--index", "index.html", "/app"]
+# No --spa: this app has no client router. SPA mode returned index.html
+# (text/html) for missing asset paths, which Cloudflare then cached as the .js URL.
+CMD ["--index", "index.html", "/app"]
