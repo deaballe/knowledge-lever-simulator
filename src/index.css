@@ -1237,3 +1237,8 @@ body {
     padding: 0;
   }
 }
+
+/* Force new hashed CSS URL (CDN had HTML cached on the previous filename). */
+html {
+  min-height: 100%;
+}
