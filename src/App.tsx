@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ConstructScores } from './types';
 import { QUESTIONS, SCALE_LABELS, QUESTION_BLOCKS } from './questions';
 import { PLAYBOOK, OUTCOMES_PLAYBOOK_NOTE } from './actions';
@@ -8,11 +8,14 @@ import {
   MEDIATION_MESSAGES,
   DISCLAIMERS,
   CITATION,
+  CREDITS,
+  RADAR_CONSTRUCTS,
 } from './model/constants';
 import { answersToScores } from './model/scores';
 import {
   computePriorities,
   findBottleneck,
+  findWeakAreas,
   trafficLight,
   formatDelta,
   pctChange,
@@ -20,6 +23,7 @@ import {
 import { actionsToDeltas, DELTA_PER_ACTION } from './model/actionsToDeltas';
 import { applyPropagation } from './model/propagate';
 import { RadarChart } from './components/RadarChart';
+import { PdfReport } from './components/PdfReport';
 
 const STEPS = [
   'Welcome',
@@ -42,6 +46,8 @@ export default function App() {
   const [questionBlock, setQuestionBlock] = useState(0);
   const [answers, setAnswers] = useState<(number | null)[]>([...EMPTY_ANSWERS]);
   const [checkedActions, setCheckedActions] = useState<Set<string>>(new Set());
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const pdfRef = useRef<HTMLDivElement>(null);
 
   const scores = useMemo<ConstructScores | null>(() => {
     if (!allAnswersFilled(answers)) return null;
@@ -60,6 +66,11 @@ export default function App() {
 
   const bottleneck = useMemo(
     () => (scores ? findBottleneck(scores) : null),
+    [scores],
+  );
+
+  const weakAreas = useMemo(
+    () => (scores ? findWeakAreas(scores) : []),
     [scores],
   );
 
@@ -134,6 +145,42 @@ export default function App() {
     setQuestionBlock(0);
     setAnswers([...EMPTY_ANSWERS]);
     setCheckedActions(new Set());
+  };
+
+  const downloadPdf = async () => {
+    if (!pdfRef.current || pdfBusy) return;
+    setPdfBusy(true);
+    const host = pdfRef.current.closest('.pdf-export-host');
+    host?.classList.add('pdf-export-host--capturing');
+    try {
+      // Let layout settle while visible to html2canvas (opacity 0 causes blank pages)
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const html2pdf = (await import('html2pdf.js')).default;
+      const stamp = new Date().toISOString().slice(0, 10);
+      await html2pdf()
+        .set({
+          margin: [12, 8, 10, 8],
+          filename: `knowledge-lever-report-${stamp}.pdf`,
+          image: { type: 'jpeg', quality: 0.95 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff',
+            windowWidth: 680,
+            scrollX: 0,
+            scrollY: 0,
+          },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pagebreak: { mode: ['css', 'legacy'] },
+        } as any)
+        .from(pdfRef.current)
+        .save();
+    } finally {
+      host?.classList.remove('pdf-export-host--capturing');
+      setPdfBusy(false);
+    }
   };
 
   return (
@@ -231,9 +278,39 @@ export default function App() {
                 ),
               )}
             </div>
-            {bottleneck && (
+            {weakAreas.length > 0 ? (
+              <div className="callout callout--danger weak-areas">
+                <h3 className="weak-areas-title">Areas of concern (red scores)</h3>
+                <p className="weak-areas-intro">
+                  Scores below 3 are marked in red. All of them need attention — not only the single
+                  highest-leverage bottleneck for the model.
+                </p>
+                <ul className="weak-areas-list">
+                  {weakAreas.map((area) => (
+                    <li key={area.construct}>
+                      <p className="weak-area-heading">
+                        <strong>
+                          {area.label} ({area.construct})
+                        </strong>
+                        <span className="weak-area-score">Score {area.score.toFixed(2)}</span>
+                        {area.kind === 'outcome' && (
+                          <span className="weak-area-tag">Outcome</span>
+                        )}
+                        {bottleneck === area.construct && (
+                          <span className="weak-area-tag weak-area-tag--primary">
+                            Highest-leverage bottleneck
+                          </span>
+                        )}
+                      </p>
+                      <p className="weak-area-explain">{area.explanation}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
               <p className="callout">
-                <strong>Likely bottleneck:</strong> {CONSTRUCT_LABELS[bottleneck]} ({bottleneck})
+                No construct scored in the red zone (below 3). Review yellow items next if any
+                remain.
               </p>
             )}
             <div className="mediation-notes">
@@ -241,6 +318,11 @@ export default function App() {
               <p>{MEDIATION_MESSAGES.ksSc}</p>
               <p>{MEDIATION_MESSAGES.rc}</p>
             </div>
+            <p className="pdf-teaser muted">
+              At the end you can download a PDF report of your diagnosis, planned actions, and
+              estimated impact. The file is created in your browser and is not stored on our
+              servers.
+            </p>
           </section>
         )}
 
@@ -277,7 +359,9 @@ export default function App() {
             <p className="lead">
               Practical actions for each lever. Sections for your top three priorities are expanded
               first. Select the actions you plan to pursue — your choices drive the estimated impact
-              on innovation and business results.
+              on innovation and business results. If none of the listed options fit, choose{' '}
+              <strong>Other actions</strong> for that lever: it counts as one planned action
+              (+{DELTA_PER_ACTION.toFixed(1)}), not one per custom initiative.
             </p>
             <div className="playbook-list">
               {sortedPlaybook.map((section) => {
@@ -295,16 +379,28 @@ export default function App() {
                       {section.intro && <p className="muted">{section.intro}</p>}
                       <ul className="action-list">
                         {section.actions.map((action) => (
-                          <li key={action.id} className="action-item">
+                          <li
+                            key={action.id}
+                            className={
+                              'action-item' + (action.isOther ? ' action-item--other' : '')
+                            }
+                          >
                             <label className="action-check">
                               <input
                                 type="checkbox"
                                 checked={checkedActions.has(action.id)}
                                 onChange={() => toggleAction(action.id)}
                               />
-                              <span>We plan to do this</span>
+                              <span>
+                                {action.isOther ? 'We plan other actions' : 'We plan to do this'}
+                              </span>
                             </label>
-                            <p className="action-title">{action.title}</p>
+                            <p className="action-title">
+                              {action.title}
+                              {action.isOther && (
+                                <span className="other-badge">Counts as 1 action</span>
+                              )}
+                            </p>
                             <p className="muted action-rationale">{action.rationale}</p>
                           </li>
                         ))}
@@ -414,10 +510,29 @@ export default function App() {
           </section>
         )}
 
-        {step === 6 && scores && simScores && (
+        {step === 6 && scores && simScores && leverDeltas && bottleneck && (
           <section className="panel summary-panel">
+            <div className="pdf-banner no-print">
+              <div>
+                <h2 className="pdf-banner-title">Download your results</h2>
+                <p>
+                  Save a PDF with your diagnosis, planned actions, impact review, and summary.
+                  The file is generated in your browser and is <strong>not stored</strong> on any
+                  server — keep a local copy if you want to present or revisit your results.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={downloadPdf}
+                disabled={pdfBusy}
+              >
+                {pdfBusy ? 'Preparing PDF…' : 'Download PDF'}
+              </button>
+            </div>
+
             <h2>Summary</h2>
-            <p className="lead">Your diagnostic snapshot and simulation results.</p>
+            <p className="lead">Your diagnostic snapshot and estimated causal impact.</p>
 
             <h3>Top priorities</h3>
             <ol className="summary-priorities">
@@ -445,6 +560,21 @@ export default function App() {
               </ul>
             )}
 
+            <h3>Simulation diagnosis</h3>
+            <p className="muted">
+              Baseline knowledge profile versus the simulated profile after your planned actions.
+            </p>
+            <div className="radar-compare">
+              <div className="radar-compare-panel">
+                <p className="radar-compare-caption">Baseline diagnosis</p>
+                <RadarChart scores={scores} size={260} accent="#64748b" fillOpacity={0.22} />
+              </div>
+              <div className="radar-compare-panel">
+                <p className="radar-compare-caption">Simulated diagnosis</p>
+                <RadarChart scores={simScores} size={260} accent="#0f766e" fillOpacity={0.32} />
+              </div>
+            </div>
+
             <h3>Simulation outcomes</h3>
             <table className="summary-table">
               <thead>
@@ -456,7 +586,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {(['IN', 'OP'] as const).map((key) => (
+                {RADAR_CONSTRUCTS.map((key) => (
                   <tr key={key}>
                     <td>{CONSTRUCT_LABELS[key]}</td>
                     <td>{scores[key].toFixed(2)}</td>
@@ -474,7 +604,34 @@ export default function App() {
               ))}
             </ul>
             <p className="citation">{CITATION}</p>
+
+            <div className="credits">
+              <h3 className="credits-title">Software credits</h3>
+              <ul className="credits-list">
+                {CREDITS.map((person) => (
+                  <li key={person.name}>
+                    <span className="credits-name">{person.name}</span>
+                    <span className="credits-role">{person.role}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </section>
+        )}
+
+        {scores && simScores && leverDeltas && bottleneck && (
+          <div className="pdf-export-host" aria-hidden="true">
+            <div ref={pdfRef}>
+              <PdfReport
+                scores={scores}
+                simScores={simScores}
+                leverDeltas={leverDeltas}
+                priorities={priorities}
+                bottleneck={bottleneck}
+                checkedActions={checkedActions}
+              />
+            </div>
+          </div>
         )}
       </main>
 
@@ -506,8 +663,13 @@ export default function App() {
           )}
           {step === STEPS.length - 1 && (
             <>
-              <button type="button" className="btn btn-primary" onClick={() => window.print()}>
-                Print summary
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={downloadPdf}
+                disabled={pdfBusy}
+              >
+                {pdfBusy ? 'Preparing PDF…' : 'Download PDF'}
               </button>
               <button type="button" className="btn btn-secondary" onClick={restart}>
                 Start over

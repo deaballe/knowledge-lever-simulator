@@ -34,3 +34,22 @@ export const DISCLAIMERS = [
 ] as const;
 export const CITATION =
   'Oliveira, M., Curado, C., Balle, A. R., and Kianto, A. (2020). Knowledge sharing, intellectual capital and organizational results in SMEs: are they related? Journal of Intellectual Capital, 21(6), 893-911.';
+
+export const CREDITS: ReadonlyArray<{ name: string; role: string }> = [
+  { name: 'Andrea Balle', role: 'Development and Analysis' },
+  { name: 'Mírian Oliveira', role: 'Analysis and Review' },
+  { name: 'Carla Curado', role: 'Analysis and Review' },
+  { name: 'Aino Kianto', role: 'Review' },
+];
+
+/** Short managerial explanations shown when a construct scores in the red zone (< 3). */
+export const WEAK_EXPLANATIONS: Record<Construct, string> = {
+  KS: 'Knowledge sharing is low. In this model, sharing does not create innovation by itself — it strengthens people, trust, partnerships, and learning capacity, which then raise innovation.',
+  HC: "People's know-how is low. Limited expertise weakens trust, documentation, partnerships, and the firm's ability to absorb and apply new knowledge.",
+  SC: "Documented knowledge is low. Important know-how may stay only in people's heads, raising the risk of knowledge loss and limiting innovation inputs.",
+  RC: 'Collaboration and partnerships are low. Relations help the firm store knowledge; in this model they do not drive innovation directly, but they still support structural capital.',
+  TC: 'Trust is low. Trust is a strong driver of absorptive capacity and also contributes directly to innovation in the validated model.',
+  AC: 'Learning and applying new knowledge is low. This is the central mediator: without absorptive capacity, sharing and intellectual capital do not translate into innovation.',
+  IN: 'Innovation is low relative to competitors. Innovation is the direct driver of business results in this model — improving the levers above is what raises this score.',
+  OP: 'Business results are low relative to competitors. Organizational performance depends mainly on innovation; weak upstream levers typically show up here.',
+};
