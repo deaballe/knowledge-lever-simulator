@@ -1,4 +1,5 @@
 :root {
+  /* labs asset cache bust */
   --color-bg: #f4f6f8;
   --color-surface: #ffffff;
   --color-text: #1e293b;
