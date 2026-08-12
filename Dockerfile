@@ -7,6 +7,8 @@
 # - Health: GET / → 200 (index.html)
 # - Env: none
 # - Persistence: none
+# - Deploy: Vite base is /knowledge-lever-simulator/; reverse proxy must
+#   Strip Path and forward to Internal Path /
 #
 #   docker build -t knowledge-lever-simulator .
 #   docker run --rm -p 8080:8080 knowledge-lever-simulator
