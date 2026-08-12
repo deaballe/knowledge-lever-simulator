@@ -2,16 +2,17 @@
 #
 # Runtime contract:
 # - Build: bun install --frozen-lockfile && bun run build → dist/
-# - Runtime: miniserve serves static SPA (no Node)
-# - Port: 8080
+# - Runtime: nginx serves static files (no Node)
+# - Port: 80
 # - Health: GET / → 200 (index.html)
 # - Env: none
 # - Persistence: none
 # - Deploy: Vite base is /knowledge-lever-simulator/; reverse proxy must
 #   Strip Path and forward to Internal Path /
+#   Container Port must be 80
 #
 #   docker build -t knowledge-lever-simulator .
-#   docker run --rm -p 8080:8080 knowledge-lever-simulator
+#   docker run --rm -p 8080:80 knowledge-lever-simulator
 
 # ---- build ----
 FROM oven/bun:1.3.14 AS build
@@ -28,11 +29,9 @@ COPY tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts ./
 RUN bun run build
 
 # ---- runtime ----
-FROM docker.io/svenstaro/miniserve:0.35.0-alpine AS runtime
+FROM nginx:alpine
 
-COPY --from=build /app/dist /app
+COPY --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 8080
-# No --spa: this app has no client router. SPA mode returned index.html
-# (text/html) for missing asset paths, which Cloudflare then cached as the .js URL.
-CMD ["--index", "index.html", "/app"]
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
